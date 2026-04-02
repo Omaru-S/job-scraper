@@ -1,7 +1,26 @@
-from filters import apply_filters
+from description_enricher import enrich_offers
+from filters import _contract_allowed, _experience_allowed, apply_filters
 from models import JobOffer
 from sources.base import JobSource
 from storage.json_writer import write_results
+
+
+def _pre_filter(offers: list[JobOffer]) -> list[JobOffer]:
+    """Drop offers that are already clearly rejected based on fields the API already provided.
+    Fields that are None are left alone — the enricher may fill them later."""
+    kept = []
+    dropped = 0
+    for offer in offers:
+        if offer.contract_type is not None and not _contract_allowed(offer):
+            dropped += 1
+            continue
+        if offer.experience is not None and not _experience_allowed(offer):
+            dropped += 1
+            continue
+        kept.append(offer)
+    if dropped:
+        print(f"Pre-filter: dropped {dropped} obviously rejected offers ({len(kept)} remaining)")
+    return kept
 
 
 def run_pipeline(
@@ -23,6 +42,8 @@ def run_pipeline(
             except Exception as exc:
                 print(f"[{source.name}] '{kw}' ERROR: {exc}")
 
+    print(f"Total fetched (with duplicates): {len(all_offers)}")
+
     seen: set[str] = set()
     unique_offers: list[JobOffer] = []
     for offer in all_offers:
@@ -30,8 +51,14 @@ def run_pipeline(
             seen.add(offer.url)
             unique_offers.append(offer)
 
+    print(f"After deduplication: {len(unique_offers)} offers")
+
+    unique_offers = _pre_filter(unique_offers)
+    enrich_offers(unique_offers)
+
+    print("Applying filters...")
     filtered = apply_filters(unique_offers)
-    print(f"After dedup: {len(unique_offers)} | After filters: {len(filtered)}")
+    print(f"After filters: {len(filtered)}/{len(unique_offers)} offers kept")
 
     output_path = write_results(filtered)
     print(f"Results written to: {output_path}")

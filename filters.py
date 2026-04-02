@@ -1,3 +1,5 @@
+import re
+
 import config
 from models import JobOffer
 
@@ -43,11 +45,10 @@ def _experience_allowed(offer: JobOffer) -> bool:
         return True
     if "exig" in exp:
         return False
-    try:
-        years = int(exp.split()[0])
-        return years <= 2
-    except (ValueError, IndexError):
-        return True
+    match = re.search(r"\d+", exp)
+    if match:
+        return int(match.group()) <= 2
+    return True
 
 
 def _salary_allowed(offer: JobOffer) -> bool:
@@ -60,10 +61,13 @@ def apply_filters(offers: list[JobOffer]) -> list[JobOffer]:
     result = []
     for offer in offers:
         if not _contract_allowed(offer):
+            print(f"  [filtered] contract    '{offer.title}' @ {offer.company} ({offer.contract_type})")
             continue
         if not _salary_allowed(offer):
+            print(f"  [filtered] salary      '{offer.title}' @ {offer.company} (min={offer.salary_min})")
             continue
         if not _experience_allowed(offer):
+            print(f"  [filtered] experience  '{offer.title}' @ {offer.company} ({offer.experience})")
             continue
         result.append(offer)
     return result

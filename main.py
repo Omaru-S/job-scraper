@@ -1,4 +1,7 @@
 import argparse
+import sys
+
+sys.stdout.reconfigure(encoding="utf-8")
 
 import config
 from pipeline import run_pipeline
