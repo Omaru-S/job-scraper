@@ -5,7 +5,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 import config
 from pipeline import run_pipeline
-from sources.france_travail import FranceTravailSource
+from api.france_travail import FranceTravailSource
 
 ALL_SOURCES = {
     "france_travail": FranceTravailSource,

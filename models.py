@@ -5,10 +5,10 @@ from typing import Optional
 @dataclass
 class JobOffer:
     title: str
-    company: str
     location: str
     url: str
     source: str
+    company: Optional[str] = None
     posted_at: Optional[str] = None
     description: Optional[str] = None
     contract_type: Optional[str] = None

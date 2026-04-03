@@ -109,6 +109,10 @@ def _parse_salary(libelle: str) -> tuple[float | None, float | None]:
         if salary_max is not None:
             salary_max *= months
 
+    # Reject implausible annual figures — likely a unit error in the API data
+    if salary_min > 300_000:
+        return None, None
+
     return salary_min, salary_max
 
 
@@ -118,7 +122,7 @@ def _map_offer(item: dict, source_name: str) -> JobOffer:
 
     return JobOffer(
         title=item.get("intitule", ""),
-        company=item.get("entreprise", {}).get("nom", "N/A"),
+        company=item.get("entreprise", {}).get("nom") or None,
         location=item.get("lieuTravail", {}).get("libelle", ""),
         url=item.get("origineOffre", {}).get("urlOrigine", ""),
         source=source_name,

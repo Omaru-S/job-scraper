@@ -1,5 +1,5 @@
-from description_enricher import enrich_offers
-from filters import _contract_allowed, _experience_allowed, apply_filters
+from llm.enricher import enrich_offers
+from core.filters import _contract_allowed, _experience_allowed, apply_filters
 from models import JobOffer
 from sources.base import JobSource
 from storage.json_writer import write_results

@@ -14,37 +14,55 @@ from tqdm import tqdm
 from models import JobOffer
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen3.5:latest"
+OLLAMA_MODEL = "qwen3.5:4b"
 
 # Fields that may be missing and can be found in the description
-_ENRICHABLE_FIELDS = ("contract_type", "salary_min", "salary_max", "remote_type", "experience")
+_ENRICHABLE_FIELDS = ("company", "contract_type", "salary_min", "salary_max", "remote_type", "experience")
 
 # Fields that are always checked against the description, even if the API already provided a value,
 # because the API value can be inaccurate (e.g. "Débutant accepté" when the description says 10 years).
 _ALWAYS_CHECK_FIELDS = ("experience",)
 
 _FIELD_DESCRIPTIONS = {
+    "company": (
+        "Name of the hiring company or organisation as explicitly stated in the job description. "
+        "Return the exact name or null if not mentioned."
+    ),
     "contract_type": (
         'Type of employment contract (e.g. "CDI", "CDD", "Freelance", "Alternance", "Stage"). '
         "Return a short string or null."
     ),
     "salary_min": (
-        "Minimum annual salary in euros as a number (no currency symbol, no thousands separator). "
-        "Convert monthly salaries to annual. Return a number or null."
+        "Minimum annual gross salary in euros, as a plain number (no symbol, no separator). "
+        "Rules: "
+        "(1) Only extract a fixed base salary explicitly stated in the description — never infer or estimate from job level. "
+        "(2) Ignore bonus percentages, variable pay percentages, or performance targets (e.g. '300% des objectifs' is not a salary). "
+        "(3) If salary is a range (e.g. '45 000 € à 55 000 €' or '40k€–50k€'), return the lower bound as salary_min. "
+        "(4) Convert 'k€' or 'K€' to full number (e.g. '40k€' → 40000). "
+        "(5) Convert monthly salary to annual by multiplying by 12. "
+        "(6) Convert daily rate (e.g. '300 €/jour') to annual by multiplying by 220. "
+        "If no explicit base salary figure is stated, return null."
     ),
     "salary_max": (
-        "Maximum annual salary in euros as a number. "
-        "Return a number or null."
+        "Maximum annual gross salary in euros, as a plain number. "
+        "Only set when the description states a salary range — return the upper bound. "
+        "Apply the same conversion rules as salary_min (k€, monthly, daily rate). "
+        "If only a single salary figure is stated (not a range), return null. "
+        "If no explicit base salary is stated, return null."
     ),
     "remote_type": (
         'Work arrangement. Must be exactly one of: "remote", "hybrid", "on-site", or null. '
-        '"remote" = fully remote, "hybrid" = partial remote, "on-site" = no remote.'
+        '"remote" = fully remote / 100% télétravail. '
+        '"hybrid" = partial remote / télétravail partiel / quelques jours par semaine. '
+        '"on-site" = no remote / présentiel / sur site. '
+        "If no work arrangement is mentioned, return null."
     ),
     "experience": (
-        "Years or level of experience explicitly required in the description "
-        '(e.g. "3 ans", "10 ans", "Débutant accepté"). '
-        "If the description states a specific number of years, return that — "
-        "it takes precedence over any general label. Return null only if the description says nothing about experience."
+        "Years of experience explicitly required. "
+        "Return the shortest phrase that captures it (e.g. '2 ans', '5 à 8 ans', '10 ans minimum'). "
+        "If the description only says 'Débutant accepté' or equivalent, return 'Débutant accepté'. "
+        "If only vague qualifiers are used (e.g. 'forte expérience', 'expérience significative') without a number, return null. "
+        "If nothing is stated about experience, return null."
     ),
 }
 
@@ -104,9 +122,17 @@ def _call_ollama(prompt: str) -> dict | None:
 
 def _apply_extracted(offer: JobOffer, extracted: dict, fields: list[str]) -> None:
     """Mutate offer in-place, setting fields from description when available."""
+    always_check = set(_ALWAYS_CHECK_FIELDS)
     for field in fields:
-        value = extracted.get(field)
+        if field not in extracted:
+            continue  # LLM didn't address this field — leave as-is
+        value = extracted[field]
         if value is None:
+            # For always-check fields, explicit null means the description doesn't
+            # state it — clear the potentially wrong API value.
+            if field in always_check and getattr(offer, field) is not None:
+                setattr(offer, field, None)
+                print(f"    [cleared]  {field} (not in description, API value removed)")
             continue
 
         if field in ("salary_min", "salary_max"):
