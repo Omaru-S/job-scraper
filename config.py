@@ -1,8 +1,11 @@
 import os
+
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv(encoding="utf-8")
 
+# --- Secrets (from .env) ---
 
 def _require(key: str) -> str:
     value = os.getenv(key)
@@ -17,16 +20,29 @@ def _require(key: str) -> str:
 FRANCE_TRAVAIL_CLIENT_ID: str = _require("FRANCE_TRAVAIL_CLIENT_ID")
 FRANCE_TRAVAIL_CLIENT_SECRET: str = _require("FRANCE_TRAVAIL_CLIENT_SECRET")
 
-def _parse_keywords(raw: str) -> list[str]:
-    return [kw.strip() for kw in raw.split(",") if kw.strip()]
+# --- User profile (from profile.yml) ---
+
+_PROFILE_PATH = os.path.join(os.path.dirname(__file__), "profile.yml")
+_EXAMPLE_PATH = os.path.join(os.path.dirname(__file__), "profile.example.yml")
 
 
-DEFAULT_KEYWORDS: list[str] = _parse_keywords(
-    os.getenv("DEFAULT_KEYWORDS", "ingénieur télécom")
-)
-DEFAULT_LOCATION: str = os.getenv("DEFAULT_LOCATION", "75")
-DEFAULT_MAX_RESULTS: int = int(os.getenv("DEFAULT_MAX_RESULTS", "50"))
+def _load_profile() -> dict:
+    path = _PROFILE_PATH if os.path.exists(_PROFILE_PATH) else _EXAMPLE_PATH
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-SALARY_MIN: float = float(os.getenv("SALARY_MIN", "40000"))
-REQUIRE_SALARY: bool = os.getenv("REQUIRE_SALARY", "false").lower() == "true"
-VIE_ALLOWED_COUNTRIES: list[str] = ["japon", "japan", "états-unis", "etats-unis", "usa", "suisse", "switzerland"]
+
+_profile = _load_profile()
+
+DEFAULT_KEYWORDS: list[str] = _profile["search"]["keywords"]
+DEFAULT_LOCATION: str = str(_profile["search"]["location"])
+DEFAULT_MAX_RESULTS: int = int(_profile["search"]["max_results"])
+
+SALARY_MIN: float = float(_profile["filters"]["salary"]["min"])
+REQUIRE_SALARY: bool = bool(_profile["filters"]["salary"]["require"])
+VIE_ALLOWED_COUNTRIES: list[str] = _profile["filters"]["vie_allowed_countries"]
+
+_scoring = _profile.get("scoring", {})
+SCORING_PREFERRED_KEYWORDS: list[str] = _scoring.get("preferred_keywords", [])
+SCORING_PREFERRED_REMOTE: str | None = _scoring.get("preferred_remote", None)
+SCORING_TARGET_SALARY: float = float(_scoring.get("target_salary", SALARY_MIN))

@@ -16,3 +16,5 @@ class JobOffer:
     salary_max: Optional[float] = None
     remote_type: Optional[str] = None  # "remote", "hybrid", "on-site", or None if unknown
     experience: Optional[str] = None
+    score: Optional[float] = None
+    grade: Optional[str] = None

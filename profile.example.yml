@@ -1,0 +1,43 @@
+# Job scraper user profile
+# Copy this file to profile.yml and fill in your preferences.
+
+search:
+  # Keywords to search for (one per line)
+  keywords:
+    - ingénieur télécom
+    - ingénieur réseaux
+  # Department code for location filtering. Leave empty for nationwide.
+  # Examples: 75=Paris, 69=Lyon, 13=Marseille
+  location: "75"
+  # Maximum number of results to fetch per source per keyword
+  max_results: 500
+
+filters:
+  salary:
+    # Minimum annual gross salary in euros (set to 0 to disable)
+    min: 40000
+    # Set to true to exclude offers with no salary information
+    require: false
+  # VIE contracts are only kept if the location matches one of these countries
+  vie_allowed_countries:
+    - japon
+    - japan
+    - états-unis
+    - etats-unis
+    - usa
+    - suisse
+    - switzerland
+
+scoring:
+  # Keywords that boost score when found in title or description (case-insensitive)
+  preferred_keywords:
+    - télécom
+    - telecom
+    - réseau
+    - network
+    - R&D
+    - satellite
+  # Preferred work arrangement: remote, hybrid, on-site, or null (no preference)
+  preferred_remote: hybrid
+  # Target salary in euros — offers at or above this get the maximum salary score
+  target_salary: 55000

@@ -30,11 +30,15 @@ def _get_access_token() -> str:
     return response.json()["access_token"]
 
 
-def _build_range(max_results: int) -> str:
-    # Pagination uses an HTTP Range header: "offres 0-49"
-    # API enforces a hard cap of 150 results per call
-    end = min(max_results, 150) - 1
-    return f"offres 0-{end}"
+_PAGE_SIZE = 150  # API hard cap per request
+
+
+def _parse_total(content_range: str) -> int | None:
+    """Extract total from Content-Range header, e.g. 'offres 0-149/832' → 832."""
+    try:
+        return int(content_range.split("/")[1])
+    except (IndexError, ValueError):
+        return None
 
 
 class FranceTravailSource(JobSource):
@@ -50,26 +54,37 @@ class FranceTravailSource(JobSource):
         if location:
             params["departement"] = location
 
-        response = requests.get(
-            _SEARCH_URL,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
-                "Range": _build_range(max_results),
-            },
-            timeout=15,
-        )
-        if not response.ok:
-            raise RuntimeError(f"{response.status_code} {response.reason}: {response.text}")
+        collected: list[JobOffer] = []
+        offset = 0
 
-        # 204 No Content = zero results for this keyword
-        if response.status_code == 204 or not response.content:
-            return []
+        while len(collected) < max_results:
+            end = min(offset + _PAGE_SIZE, max_results) - 1
+            response = requests.get(
+                _SEARCH_URL,
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                    "Range": f"offres {offset}-{end}",
+                },
+                timeout=15,
+            )
+            if not response.ok:
+                raise RuntimeError(f"{response.status_code} {response.reason}: {response.text}")
 
-        raw_offers = response.json().get("resultats", [])
+            if response.status_code == 204 or not response.content:
+                break
 
-        return [_map_offer(item, self.name) for item in raw_offers]
+            page = response.json().get("resultats", [])
+            collected.extend(_map_offer(item, self.name) for item in page)
+
+            total = _parse_total(response.headers.get("Content-Range", ""))
+            if total is None or offset + _PAGE_SIZE >= total:
+                break
+
+            offset += _PAGE_SIZE
+
+        return collected
 
 
 def _parse_remote_type(item: dict) -> str | None:

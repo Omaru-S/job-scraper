@@ -12,5 +12,8 @@ wheels/
 # Environment variables (contains secrets)
 .env
 
+# User profile (personal preferences)
+profile.yml
+
 # Job results
 results/
