@@ -113,10 +113,10 @@ def _call_ollama(prompt: str) -> dict | None:
         content = response.json()["message"]["content"]
         return json.loads(content)
     except requests.exceptions.ConnectionError:
-        print(f"[enricher] Ollama not reachable at {OLLAMA_URL}. Skipping enrichment.")
+        tqdm.write(f"  ! Ollama not reachable at {OLLAMA_URL} — skipping enrichment.")
         return None
     except Exception as exc:
-        print(f"[enricher] Ollama call failed: {exc}")
+        tqdm.write(f"  ! Ollama call failed: {exc}")
         return None
 
 
@@ -132,28 +132,26 @@ def _apply_extracted(offer: JobOffer, extracted: dict, fields: list[str]) -> Non
             # state it — clear the potentially wrong API value.
             if field in always_check and getattr(offer, field) is not None:
                 setattr(offer, field, None)
-                print(f"    [cleared]  {field} (not in description, API value removed)")
+                tqdm.write(f"    ~ cleared  {field}")
             continue
 
         if field in ("salary_min", "salary_max"):
-            # Accept numeric strings like "45000" or "45 000"
             if isinstance(value, (int, float)):
                 setattr(offer, field, float(value))
-                print(f"    [enriched] {field} = {float(value)}")
+                tqdm.write(f"    + {field} = {float(value)}")
             elif isinstance(value, str):
                 cleaned = re.sub(r"[^\d.]", "", value.replace(",", "."))
                 if cleaned:
                     setattr(offer, field, float(cleaned))
-                    print(f"    [enriched] {field} = {float(cleaned)}")
+                    tqdm.write(f"    + {field} = {float(cleaned)}")
         elif field == "remote_type":
             if value in ("remote", "hybrid", "on-site"):
                 offer.remote_type = value
-                print(f"    [enriched] remote_type = {value}")
+                tqdm.write(f"    + remote_type = {value}")
         else:
-            # contract_type, experience — plain strings
             if isinstance(value, str) and value.strip():
                 setattr(offer, field, value.strip())
-                print(f"    [enriched] {field} = {value.strip()!r}")
+                tqdm.write(f"    + {field} = {value.strip()!r}")
 
 
 def enrich_offers(offers: list[JobOffer]) -> list[JobOffer]:
@@ -166,9 +164,7 @@ def enrich_offers(offers: list[JobOffer]) -> list[JobOffer]:
     if not to_enrich:
         return offers
 
-    print(f"[enricher] {len(to_enrich)}/{len(offers)} offers to enrich via Ollama ({OLLAMA_MODEL})")
-
-    with tqdm(total=len(to_enrich), unit="offer", desc="Enriching") as bar:
+    with tqdm(total=len(to_enrich), unit="offer", desc="  Enriching") as bar:
         for _, offer in to_enrich:
             fields = _fields_to_check(offer)
             bar.set_postfix_str(offer.title[:40])

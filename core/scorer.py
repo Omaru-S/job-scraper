@@ -62,6 +62,8 @@ def _score_experience(offer: JobOffer) -> float:
     exp_lower = exp.lower()
     if "débutant" in exp_lower or "debutant" in exp_lower:
         return 1.0
+    if "mois" in exp_lower:
+        return 1.0  # months-only requirement is always junior
     match = re.search(r"\d+", exp_lower)
     if match:
         years = int(match.group())

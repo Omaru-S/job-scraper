@@ -1,0 +1,272 @@
+"""
+Welcome to the Jungle scraper.
+
+Two responsibilities:
+  - search_jobs(keyword, location, max_pages) → list of CardResult
+  - scrape_job(url) → dict of job fields (matching JobOffer)
+"""
+
+import re
+import logging
+from dataclasses import dataclass
+from urllib.parse import quote_plus
+
+from scrapling.fetchers import DynamicFetcher
+from scrapling.core.utils import set_logger as _scrapling_set_logger
+
+logger = logging.getLogger(__name__)
+
+# Scrapling uses a ContextVar logger — silence it in every thread that calls us.
+_scrapling_silent = logging.getLogger("scrapling")
+_scrapling_silent.setLevel(logging.WARNING)
+
+
+def _silence_scrapling() -> None:
+    """Call once per thread to suppress scrapling's INFO fetch logs."""
+    _scrapling_set_logger(_scrapling_silent)
+
+BASE_URL = "https://www.welcometothejungle.com"
+SEARCH_URL = BASE_URL + "/fr/jobs?query={query}&aroundQuery={location}&page={page}"
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CardResult:
+    url: str
+    title: str
+    company: str | None
+    contract_type: str | None
+
+
+# ---------------------------------------------------------------------------
+# Pre-filtering
+# ---------------------------------------------------------------------------
+
+_CONTRACT_EXCLUDE = {"Alternance", "Stage", "VIE"}
+
+_TITLE_EXCLUDE = re.compile(
+    r"\b("
+    r"alternance|alternant[e]?"
+    r"|stage|stagiaire"
+    r"|vie\b"                          # VIE contract (but not e.g. "vie privée")
+    r"|commerci[ae]l[e]?"              # commercial / commerciale
+    r"|avant[- ]vente"
+    r"|ingénieur[e]?\s+d['\u2019]affaires"
+    r"|account\s+manager"
+    r"|\bmanager\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_CONTRACT_PATTERN = re.compile(
+    r"^(CDI|CDD|Freelance|Stage|Alternance|Intérim|VIE)$"
+)
+
+
+def _is_relevant(title: str | None, contract_type: str | None) -> bool:
+    if contract_type in _CONTRACT_EXCLUDE:
+        return False
+    if title and _TITLE_EXCLUDE.search(title):
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Search page
+# ---------------------------------------------------------------------------
+
+def search_jobs(keyword: str, location: str = "Paris", max_pages: int = 3) -> list[CardResult]:
+    """
+    Scrape WTTJ search results, pre-filter irrelevant cards, and return
+    a deduplicated list of CardResult. Each page yields ~30 cards.
+    """
+    _silence_scrapling()
+    seen: set[str] = set()
+    results: list[CardResult] = []
+
+    for page_num in range(1, max_pages + 1):
+        url = SEARCH_URL.format(
+            query=quote_plus(keyword),
+            location=quote_plus(location),
+            page=page_num,
+        )
+        logger.debug("Searching page %d: %s", page_num, url)
+        page = DynamicFetcher.fetch(url, network_idle=True, headless=True)
+
+        cards = page.css('[data-testid^="job-thumb-"]')
+        new_on_page = 0
+        filtered_on_page = 0
+
+        for card in cards:
+            link = card.css("a")[0] if card.css("a") else None
+            if not link:
+                continue
+
+            href = link.attrib.get("href", "")
+            if not href or href in seen:
+                continue
+
+            aria = link.attrib.get("aria-label", "")
+            title = aria.removeprefix("Consultez l'offre ").strip() or None
+
+            # Contract type from card text tokens
+            tokens = [t.strip() for t in card.css("*::text").getall() if t.strip()]
+            contract_type = next(
+                (t for t in tokens if _CONTRACT_PATTERN.match(t)), None
+            )
+
+            # Company name from logo img alt
+            logo = card.css("img[data-testid^='job-thumb-logo-']")
+            company = logo[0].attrib.get("alt") if logo else None
+
+            seen.add(href)
+
+            if not _is_relevant(title, contract_type):
+                filtered_on_page += 1
+                logger.debug("  Filtered: %r (%s)", title, contract_type)
+                continue
+
+            results.append(CardResult(
+                url=BASE_URL + href,
+                title=title,
+                company=company,
+                contract_type=contract_type,
+            ))
+            new_on_page += 1
+
+        logger.debug(
+            "Page %d: %d kept, %d filtered (total: %d)",
+            page_num, new_on_page, filtered_on_page, len(results),
+        )
+
+        if new_on_page + filtered_on_page == 0:
+            break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Detail page
+# ---------------------------------------------------------------------------
+
+def _tokens(el) -> list[str]:
+    return [t.strip() for t in el.css("*::text").getall() if t.strip()]
+
+
+def _normalize_remote(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    r = raw.lower()
+    if "total" in r or "full" in r or "100" in r:
+        return "remote"
+    if "fréquent" in r or "partiel" in r or "occasionnel" in r or "hybride" in r:
+        return "hybrid"
+    if "non autorisé" in r or "présentiel" in r or "sur site" in r:
+        return "on-site"
+    return None
+
+
+def _parse_salary(raw: str) -> tuple[float | None, float | None]:
+    is_upper = bool(re.search(r"^[<«]", raw.strip()))
+    normalized = raw.replace("\u202f", "").replace("\xa0", "").replace(" ", "")
+    numbers = re.findall(r"\d+(?:[.,]\d+)?[Kk]?", normalized)
+    values: list[float] = []
+    for n in numbers:
+        n = n.replace(",", ".")
+        if n.lower().endswith("k"):
+            values.append(float(n[:-1]) * 1000)
+        else:
+            try:
+                values.append(float(n))
+            except ValueError:
+                pass
+    if len(values) >= 2:
+        return values[0], values[1]
+    if len(values) == 1:
+        return (None, values[0]) if is_upper else (values[0], None)
+    return None, None
+
+
+def _parse_metadata(tokens: list[str]) -> dict:
+    result: dict = {}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if re.match(r"Salaire", tok) and i + 1 < len(tokens):
+            result["salary_raw"] = tokens[i + 1]
+            i += 2
+        elif re.match(r"Expérience", tok) and i + 1 < len(tokens):
+            result["experience"] = tokens[i + 1]
+            i += 2
+        elif re.match(r"Éducation", tok) and i + 1 < len(tokens):
+            result["education"] = tokens[i + 1]
+            i += 2
+        elif re.match(r"(CDI|CDD|Freelance|Stage|Alternance|Intérim|VIE)", tok):
+            result["contract_type"] = tok
+            i += 1
+        elif re.match(r"Télétravail|Full.?remote|Présentiel", tok, re.I):
+            result["remote_type"] = _normalize_remote(tok)
+            i += 1
+        elif re.match(r"il y a|aujourd", tok):
+            result["posted_at"] = tok
+            i += 1
+        else:
+            i += 1
+    return result
+
+
+def scrape_job(url: str) -> dict:
+    """
+    Fetch a single WTTJ job page and return a dict of structured fields.
+    Safe to call from multiple threads — silences scrapling logs per-thread.
+    Raises ValueError on 404.
+    """
+    _silence_scrapling()
+    page = DynamicFetcher.fetch(url, network_idle=True, headless=True)
+
+    if page.css('[data-testid="error-page-404"]'):
+        raise ValueError(f"404 — job listing not found: {url}")
+
+    meta = page.css('[data-testid="job-metadata-block"]')
+
+    title = meta.css("h2::text").get() if meta else page.css("h2::text").get()
+    company = meta.css('a[href*="/fr/companies/"] span::text').get() if meta else None
+
+    all_tokens = _tokens(meta) if meta else []
+    parsed = _parse_metadata(all_tokens)
+
+    location = None
+    contract = parsed.get("contract_type", "")
+    if contract and contract in all_tokens:
+        idx = all_tokens.index(contract)
+        if idx + 1 < len(all_tokens):
+            location = all_tokens[idx + 1].strip(", ")
+
+    salary_min, salary_max = _parse_salary(parsed.get("salary_raw", ""))
+
+    desc_nodes = page.css('[data-testid="job-section-description"] *::text').getall()
+    description = " ".join(t.strip() for t in desc_nodes if t.strip()) or None
+
+    profile_nodes = page.css('[data-testid="job-section-experience"] *::text').getall()
+    profile = " ".join(t.strip() for t in profile_nodes if t.strip()) or None
+
+    return {
+        "url": url,
+        "source": "welcome_to_the_jungle",
+        "title": title,
+        "company": company,
+        "location": location,
+        "contract_type": parsed.get("contract_type"),
+        "remote_type": parsed.get("remote_type"),
+        "salary_raw": parsed.get("salary_raw"),
+        "salary_min": salary_min,
+        "salary_max": salary_max,
+        "experience": parsed.get("experience"),
+        "education": parsed.get("education"),
+        "posted_at": parsed.get("posted_at"),
+        "description": description,
+        "profile": profile,
+    }

@@ -15,6 +15,10 @@ _SCOPE = "api_offresdemploiv2 o2dsoffre"
 
 
 def _get_access_token() -> str:
+    if not config.FRANCE_TRAVAIL_CLIENT_ID or not config.FRANCE_TRAVAIL_CLIENT_SECRET:
+        raise EnvironmentError(
+            "Missing FRANCE_TRAVAIL_CLIENT_ID or FRANCE_TRAVAIL_CLIENT_SECRET in .env"
+        )
     response = requests.post(
         _TOKEN_URL,
         data={

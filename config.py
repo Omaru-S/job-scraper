@@ -17,8 +17,8 @@ def _require(key: str) -> str:
     return value
 
 
-FRANCE_TRAVAIL_CLIENT_ID: str = _require("FRANCE_TRAVAIL_CLIENT_ID")
-FRANCE_TRAVAIL_CLIENT_SECRET: str = _require("FRANCE_TRAVAIL_CLIENT_SECRET")
+FRANCE_TRAVAIL_CLIENT_ID: str | None = os.getenv("FRANCE_TRAVAIL_CLIENT_ID")
+FRANCE_TRAVAIL_CLIENT_SECRET: str | None = os.getenv("FRANCE_TRAVAIL_CLIENT_SECRET")
 
 # --- User profile (from profile.yml) ---
 

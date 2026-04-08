@@ -41,10 +41,14 @@ def _experience_allowed(offer: JobOffer) -> bool:
     if not offer.experience:
         return True
     exp = offer.experience.lower()
-    if "d\xe9butant" in exp or "debutant" in exp:
+    if "débutant" in exp or "debutant" in exp:
         return True
     if "exig" in exp:
         return False
+    # "> 6 mois" — months are always junior enough
+    if "mois" in exp:
+        return True
+    # "> 1 an", "2 ans d'expérience", etc. — extract the year count
     match = re.search(r"\d+", exp)
     if match:
         return int(match.group()) <= 2
@@ -57,17 +61,16 @@ def _salary_allowed(offer: JobOffer) -> bool:
     return offer.salary_min >= config.SALARY_MIN
 
 
-def apply_filters(offers: list[JobOffer]) -> list[JobOffer]:
+def apply_filters(offers: list[JobOffer]) -> tuple[list[JobOffer], dict[str, int]]:
     result = []
+    reasons: dict[str, int] = {"contract": 0, "salary": 0, "experience": 0}
     for offer in offers:
         if not _contract_allowed(offer):
-            print(f"  [filtered] contract    '{offer.title}' @ {offer.company} ({offer.contract_type})")
-            continue
-        if not _salary_allowed(offer):
-            print(f"  [filtered] salary      '{offer.title}' @ {offer.company} (min={offer.salary_min})")
-            continue
-        if not _experience_allowed(offer):
-            print(f"  [filtered] experience  '{offer.title}' @ {offer.company} ({offer.experience})")
-            continue
-        result.append(offer)
-    return result
+            reasons["contract"] += 1
+        elif not _salary_allowed(offer):
+            reasons["salary"] += 1
+        elif not _experience_allowed(offer):
+            reasons["experience"] += 1
+        else:
+            result.append(offer)
+    return result, reasons

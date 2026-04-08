@@ -1,14 +1,23 @@
 import argparse
+import logging
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
+# Suppress scrapling's per-request INFO logs (it uses a custom LoggerProxy, not stdlib)
+from scrapling.core.utils import set_logger
+_silent_logger = logging.getLogger("scrapling")
+_silent_logger.setLevel(logging.WARNING)
+set_logger(_silent_logger)
+
 import config
 from pipeline import run_pipeline
 from api.france_travail import FranceTravailSource
+from sources.welcome_to_the_jungle import WelcomeToTheJungleSource
 
 ALL_SOURCES = {
     "france_travail": FranceTravailSource,
+    "welcome_to_the_jungle": WelcomeToTheJungleSource,
 }
 
 
