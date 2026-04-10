@@ -41,6 +41,8 @@ DEFAULT_MAX_RESULTS: int = int(_profile["search"]["max_results"])
 SALARY_MIN: float = float(_profile["filters"]["salary"]["min"])
 REQUIRE_SALARY: bool = bool(_profile["filters"]["salary"]["require"])
 VIE_ALLOWED_COUNTRIES: list[str] = _profile["filters"]["vie_allowed_countries"]
+TITLE_DOMAIN_KEYWORDS: list[str] = _profile["filters"].get("title_domain", [])
+TITLE_EXCLUDE_PATTERNS: list[str] = _profile["filters"].get("title_exclude", [])
 
 _scoring = _profile.get("scoring", {})
 SCORING_PREFERRED_KEYWORDS: list[str] = _scoring.get("preferred_keywords", [])

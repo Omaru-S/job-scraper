@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 
+import config
 from scrapling.fetchers import DynamicFetcher
 from scrapling.core.utils import set_logger as _scrapling_set_logger
 
@@ -47,12 +48,13 @@ class CardResult:
 
 _CONTRACT_EXCLUDE = {"Alternance", "Stage", "VIE"}
 
-_TITLE_EXCLUDE = re.compile(
+# Hard-coded sourcing exclusions (contract/role type — always excluded regardless of profile)
+_TITLE_EXCLUDE_HARD = re.compile(
     r"\b("
     r"alternance|alternant[e]?"
     r"|stage|stagiaire"
-    r"|vie\b"                          # VIE contract (but not e.g. "vie privée")
-    r"|commerci[ae]l[e]?"              # commercial / commerciale
+    r"|vie\b"
+    r"|commerci[ae]l[e]?"
     r"|avant[- ]vente"
     r"|ingénieur[e]?\s+d['\u2019]affaires"
     r"|account\s+manager"
@@ -60,6 +62,21 @@ _TITLE_EXCLUDE = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+# Profile-driven exclusions loaded from profile.yml
+_TITLE_EXCLUDE_PROFILE = (
+    re.compile(
+        r"\b(" + "|".join(re.escape(p) for p in config.TITLE_EXCLUDE_PATTERNS) + r")\b",
+        re.IGNORECASE,
+    )
+    if config.TITLE_EXCLUDE_PATTERNS else None
+)
+
+# Profile-driven domain requirement loaded from profile.yml
+_TITLE_DOMAIN_RES = [
+    re.compile(re.escape(kw), re.IGNORECASE)
+    for kw in config.TITLE_DOMAIN_KEYWORDS
+]
 
 _CONTRACT_PATTERN = re.compile(
     r"^(CDI|CDD|Freelance|Stage|Alternance|Intérim|VIE)$"
@@ -69,7 +86,13 @@ _CONTRACT_PATTERN = re.compile(
 def _is_relevant(title: str | None, contract_type: str | None) -> bool:
     if contract_type in _CONTRACT_EXCLUDE:
         return False
-    if title and _TITLE_EXCLUDE.search(title):
+    if not title:
+        return True
+    if _TITLE_EXCLUDE_HARD.search(title):
+        return False
+    if _TITLE_EXCLUDE_PROFILE and _TITLE_EXCLUDE_PROFILE.search(title):
+        return False
+    if _TITLE_DOMAIN_RES and not any(r.search(title) for r in _TITLE_DOMAIN_RES):
         return False
     return True
 
@@ -154,6 +177,41 @@ def search_jobs(keyword: str, location: str = "Paris", max_pages: int = 3) -> li
 
 def _tokens(el) -> list[str]:
     return [t.strip() for t in el.css("*::text").getall() if t.strip()]
+
+
+_EXP_FROM_TEXT = re.compile(
+    r"(\d+)\s*\+?\s*(?:years?|ans?)\b",
+    re.IGNORECASE,
+)
+
+_EXP_CONTEXT = re.compile(
+    r"(?:experience?|expérience|proficiency|professional|minimum|required|requis)",
+    re.IGNORECASE,
+)
+
+
+def _extract_experience_from_text(text: str | None) -> str | None:
+    """
+    Fallback: scan free-text for the highest year requirement near an
+    experience-related keyword (e.g. "5+ years of experience").
+    Returns a normalised string like "5+ ans" or None.
+    """
+    if not text:
+        return None
+    best: int | None = None
+    for m in _EXP_FROM_TEXT.finditer(text):
+        # Only count if an experience-related word appears within ±120 chars
+        start = max(0, m.start() - 120)
+        end = min(len(text), m.end() + 120)
+        window = text[start:end]
+        if not _EXP_CONTEXT.search(window):
+            continue
+        years = int(m.group(1))
+        if best is None or years > best:
+            best = years
+    if best is None:
+        return None
+    return f"{best}+ ans"
 
 
 def _normalize_remote(raw: str | None) -> str | None:
@@ -253,6 +311,10 @@ def scrape_job(url: str) -> dict:
     profile_nodes = page.css('[data-testid="job-section-experience"] *::text').getall()
     profile = " ".join(t.strip() for t in profile_nodes if t.strip()) or None
 
+    experience = parsed.get("experience") or _extract_experience_from_text(
+        (profile or "") + " " + (description or "")
+    )
+
     return {
         "url": url,
         "source": "welcome_to_the_jungle",
@@ -264,7 +326,7 @@ def scrape_job(url: str) -> dict:
         "salary_raw": parsed.get("salary_raw"),
         "salary_min": salary_min,
         "salary_max": salary_max,
-        "experience": parsed.get("experience"),
+        "experience": experience,
         "education": parsed.get("education"),
         "posted_at": parsed.get("posted_at"),
         "description": description,
