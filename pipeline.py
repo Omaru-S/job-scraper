@@ -2,7 +2,6 @@ from tqdm import tqdm
 
 from llm.enricher import enrich_offers
 from core.filters import _contract_allowed, _experience_allowed, apply_filters
-from core.scorer import score_offers
 from core.validator import validate_offers
 from models import JobOffer
 from sources.base import JobSource
@@ -67,14 +66,6 @@ def run_pipeline(
     print(f"  Kept:     {len(filtered)}")
 
     validate_offers(filtered)
-    score_offers(filtered)
-
-    if filtered:
-        grade_counts: dict[str, int] = {}
-        for o in filtered:
-            grade_counts[o.grade] = grade_counts.get(o.grade, 0) + 1
-        breakdown = "  ".join(f"{g}:{n}" for g, n in sorted(grade_counts.items()))
-        print(f"  Grades:   {breakdown}  — top: [{filtered[0].grade}] {filtered[0].title}")
 
     output_path = append_to_tracker(filtered)
     save_seen_urls(seen_urls)

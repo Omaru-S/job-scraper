@@ -44,7 +44,3 @@ VIE_ALLOWED_COUNTRIES: list[str] = _profile["filters"]["vie_allowed_countries"]
 TITLE_DOMAIN_KEYWORDS: list[str] = _profile["filters"].get("title_domain", [])
 TITLE_EXCLUDE_PATTERNS: list[str] = _profile["filters"].get("title_exclude", [])
 
-_scoring = _profile.get("scoring", {})
-SCORING_PREFERRED_KEYWORDS: list[str] = _scoring.get("preferred_keywords", [])
-SCORING_PREFERRED_REMOTE: str | None = _scoring.get("preferred_remote", None)
-SCORING_TARGET_SALARY: float = float(_scoring.get("target_salary", SALARY_MIN))

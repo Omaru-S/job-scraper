@@ -1,7 +1,10 @@
 import re
+from datetime import datetime, timezone, timedelta
 
 import config
 from models import JobOffer
+
+_MAX_AGE_DAYS = 14
 
 # Contract type codes as returned by the FranceTravail API
 _VIE_KEYWORDS = {"vie", "via", "volontariat international"}
@@ -60,6 +63,42 @@ def _experience_allowed(offer: JobOffer) -> bool:
     return True
 
 
+def _parse_age_days(posted_at: str) -> int | None:
+    """Return the age of the offer in days, or None if unparseable."""
+    # ISO datetime from France Travail: "2026-03-28T12:00:00+02:00"
+    try:
+        dt = datetime.fromisoformat(posted_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).days
+    except ValueError:
+        pass
+    # French relative string from WTTJ: "il y a 3 jours", "aujourd'hui", "il y a 2 semaines"
+    s = posted_at.lower()
+    if "aujourd" in s:
+        return 0
+    m = re.search(r"il y a\s+(\d+)\s+(jour|semaine|mois)", s)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit == "jour":
+            return n
+        if unit == "semaine":
+            return n * 7
+        if unit == "mois":
+            return n * 30
+    return None
+
+
+def _age_allowed(offer: JobOffer) -> bool:
+    if not offer.posted_at:
+        return True  # unknown date — keep
+    age = _parse_age_days(offer.posted_at)
+    if age is None:
+        return True  # unparseable — keep
+    return age <= _MAX_AGE_DAYS
+
+
 def _salary_allowed(offer: JobOffer) -> bool:
     if offer.salary_min is None:
         return not config.REQUIRE_SALARY
@@ -86,7 +125,7 @@ def apply_filters(offers: list[JobOffer]) -> tuple[list[JobOffer], dict[str, int
     result = []
     reasons: dict[str, int] = {
         "contract": 0, "salary": 0, "experience": 0,
-        "title_exclude": 0, "title_domain": 0,
+        "title_exclude": 0, "title_domain": 0, "age": 0,
     }
     for offer in offers:
         if not _contract_allowed(offer):
@@ -99,6 +138,8 @@ def apply_filters(offers: list[JobOffer]) -> tuple[list[JobOffer], dict[str, int
             reasons["title_exclude"] += 1
         elif not _title_domain_allowed(offer):
             reasons["title_domain"] += 1
+        elif not _age_allowed(offer):
+            reasons["age"] += 1
         else:
             result.append(offer)
     return result, reasons
