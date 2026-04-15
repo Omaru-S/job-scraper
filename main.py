@@ -14,10 +14,12 @@ import config
 from pipeline import run_pipeline
 from api.france_travail import FranceTravailSource
 from sources.welcome_to_the_jungle import WelcomeToTheJungleSource
+from sources.mon_vie_via import MonVieViaSource
 
 ALL_SOURCES = {
     "france_travail": FranceTravailSource,
     "welcome_to_the_jungle": WelcomeToTheJungleSource,
+    "mon_vie_via": MonVieViaSource,
 }
 
 
