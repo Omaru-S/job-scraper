@@ -137,32 +137,39 @@ def _filter_and_load_action(max_clicks: int):
             except Exception:
                 pass
 
-        # ── Step 4: click "Voir plus d'offres" until exhausted ─────────────
+        # ── Step 4: click "Voir plus d'offres" until the button disappears ──
+        # max_clicks is a safety ceiling only — we always try to exhaust all.
         for _ in range(max_clicks):
             try:
                 btn = pw_page.locator("a.see-more-btn, button.see-more-btn").first
                 if not (btn.count() and btn.is_visible()):
-                    break
+                    break  # no more offers to load
                 before = pw_page.locator(".figure_container").count()
                 btn.scroll_into_view_if_needed()
                 btn.click()
-                pw_page.wait_for_function(
-                    f"document.querySelectorAll('.figure_container').length > {before}",
-                    timeout=10000,
-                )
+                try:
+                    pw_page.wait_for_function(
+                        f"document.querySelectorAll('.figure_container').length > {before}",
+                        timeout=12000,
+                    )
+                except Exception:
+                    # Timeout: check manually — if count grew, keep going;
+                    # if not, the button is likely stuck or gone.
+                    pw_page.wait_for_timeout(2000)
                 after = pw_page.locator(".figure_container").count()
                 if after == before:
-                    break
+                    break  # click had no effect — truly at the end
             except Exception:
                 break
     return _action
 
 
-def list_offers(max_clicks: int = 100) -> list[CardResult]:
+def list_offers(max_clicks: int = 500) -> list[CardResult]:
     """
-    Fetch the MVV listing page, click 'Voir plus d'offres' until all offers
-    are loaded, and return only those in the target countries.
-    max_clicks caps the number of button clicks (each loads ~6 offers).
+    Fetch the MVV listing page, click 'Voir plus d'offres' until the button
+    disappears (all offers loaded), and return those in the target countries.
+    max_clicks is a safety ceiling — in practice the loop stops when the
+    button is gone.
     """
     _silence_scrapling()
 

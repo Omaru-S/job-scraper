@@ -42,11 +42,9 @@ class MonVieViaSource(JobSource):
         return "mon_vie_via"
 
     def fetch(self, keywords: str, location: str, max_results: int) -> list[JobOffer]:
-        max_clicks = max(20, max_results // 6)
-
-        # 1. Listing page → filtered cards
+        # 1. Listing page — click "Voir plus" until the button disappears
         print("  Fetching listing…")
-        cards: list[CardResult] = list_offers(max_clicks=max_clicks)
+        cards: list[CardResult] = list_offers()
 
         # 2. Show per-country breakdown
         counts: Counter = Counter(_country_key(c.location) for c in cards)
@@ -55,13 +53,12 @@ class MonVieViaSource(JobSource):
             print(f"  {label:<12} {n:>3} offer{'s' if n != 1 else ''} found")
         print(f"  {'Total':<12} {len(cards):>3} offers")
 
-        # 3. Scrape detail pages in parallel
+        # 3. Scrape all detail pages in parallel (no max_results cap — we want everything)
         offers: list[JobOffer] = []
-        batch = cards[:max_results]
         futures: dict = {}
 
         with ThreadPoolExecutor(max_workers=_SCRAPE_WORKERS) as pool:
-            for card in batch:
+            for card in cards:
                 futures[pool.submit(scrape_offer, card.url)] = card
 
             with tqdm(
