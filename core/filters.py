@@ -134,9 +134,9 @@ def apply_filters(offers: list[JobOffer]) -> tuple[list[JobOffer], dict[str, int
             reasons["salary"] += 1
         elif not _experience_allowed(offer):
             reasons["experience"] += 1
-        elif not _title_exclude_allowed(offer):
+        elif not _is_vie(offer.contract_type or "") and not _title_exclude_allowed(offer):
             reasons["title_exclude"] += 1
-        elif not _title_domain_allowed(offer):
+        elif not _is_vie(offer.contract_type or "") and not _title_domain_allowed(offer):
             reasons["title_domain"] += 1
         elif not _age_allowed(offer):
             reasons["age"] += 1

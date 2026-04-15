@@ -24,7 +24,16 @@ BASE_URL = "https://mon-vie-via.businessfrance.fr"
 SEARCH_URL = BASE_URL + "/offres/recherche"
 
 # Target countries in French uppercase, as displayed in `.location` cards
+# Used both for the website filter UI and as a safety-net check on card text
 _TARGET_COUNTRIES = frozenset({"JAPON", "ETATS-UNIS", "SINGAPOUR", "SUISSE"})
+
+# The Zone/Pays multiselects are at fixed indices in .multiselect.standard
+# (Spécialisation=0, Type=1, Durée=2, Zone=3, Pays=4, ...)
+_ZONE_INDEX = 3
+_PAYS_INDEX = 4
+
+_TARGET_ZONES = ["AMERIQUE DU NORD", "ASIE ET PACIFIQUE", "EUROPE OCCIDENTALE"]
+_TARGET_PAYS  = ["ETATS-UNIS", "JAPON", "SINGAPOUR", "SUISSE"]
 
 _MONTHS_FR = {
     "janvier": 1, "février": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6,
@@ -82,12 +91,14 @@ def _joined(el, selector: str) -> str | None:
 # Listing page — click "Voir plus d'offres" until exhausted, filter by country
 # ---------------------------------------------------------------------------
 
-def _click_voir_plus_action(max_clicks: int):
+def _filter_and_load_action(max_clicks: int):
     """
     page_action:
-    1. Dismiss the Didomi cookie consent popup (it intercepts all pointer events).
-    2. Click 'Voir plus d'offres' repeatedly until the button disappears or
-       no new cards are added. Stops after max_clicks at most.
+    1. Dismiss the Didomi cookie consent popup.
+    2. Use the site's Zone filter to select the 3 target regions, then use
+       the Pays filter to narrow to the 4 target countries. Both dropdowns
+       close after each click so we re-open them per value.
+    3. Click 'Voir plus d'offres' until all filtered results are loaded.
     """
     def _action(pw_page) -> None:
         # ── Step 1: dismiss cookie banner ──────────────────────────────────
@@ -95,29 +106,53 @@ def _click_voir_plus_action(max_clicks: int):
             reject_btn = pw_page.locator("button.didomi-disagree-button").first
             if reject_btn.count() and reject_btn.is_visible():
                 reject_btn.click()
-                pw_page.wait_for_selector(
-                    "#didomi-host", state="hidden", timeout=5000
-                )
+                pw_page.wait_for_selector("#didomi-host", state="hidden", timeout=6000)
+                pw_page.wait_for_timeout(800)
         except Exception:
-            pass  # banner may already be gone or have a different selector
+            pass
 
-        # ── Step 2: click "Voir plus d'offres" until exhausted ─────────────
+        # ── Step 2: select target zones ────────────────────────────────────
+        zone_ms = pw_page.locator(".multiselect.standard").nth(_ZONE_INDEX)
+        for zone in _TARGET_ZONES:
+            try:
+                zone_ms.click()
+                pw_page.wait_for_timeout(500)
+                opt = pw_page.locator(".multiselect__option").filter(has_text=zone).first
+                if opt.is_visible(timeout=2000):
+                    opt.click()
+                    pw_page.wait_for_timeout(600)
+            except Exception:
+                pass
+
+        # ── Step 3: select target countries ────────────────────────────────
+        pays_ms = pw_page.locator(".multiselect.standard").nth(_PAYS_INDEX)
+        for pays in _TARGET_PAYS:
+            try:
+                pays_ms.click()
+                pw_page.wait_for_timeout(500)
+                opt = pw_page.locator(".multiselect__option").filter(has_text=pays).first
+                if opt.is_visible(timeout=2000):
+                    opt.click()
+                    pw_page.wait_for_timeout(600)
+            except Exception:
+                pass
+
+        # ── Step 4: click "Voir plus d'offres" until exhausted ─────────────
         for _ in range(max_clicks):
             try:
                 btn = pw_page.locator("a.see-more-btn, button.see-more-btn").first
                 if not (btn.count() and btn.is_visible()):
-                    break  # button gone — all offers loaded
+                    break
                 before = pw_page.locator(".figure_container").count()
                 btn.scroll_into_view_if_needed()
                 btn.click()
-                # Wait for new cards to appear rather than networkidle
                 pw_page.wait_for_function(
                     f"document.querySelectorAll('.figure_container').length > {before}",
                     timeout=10000,
                 )
                 after = pw_page.locator(".figure_container").count()
                 if after == before:
-                    break  # no new cards — stop
+                    break
             except Exception:
                 break
     return _action
@@ -135,7 +170,7 @@ def list_offers(max_clicks: int = 100) -> list[CardResult]:
         SEARCH_URL,
         network_idle=True,
         headless=True,
-        page_action=_click_voir_plus_action(max_clicks),
+        page_action=_filter_and_load_action(max_clicks),
     )
 
     results: list[CardResult] = []
