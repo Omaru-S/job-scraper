@@ -276,6 +276,24 @@ def _parse_metadata(tokens: list[str]) -> dict:
     return result
 
 
+def _expand_voir_plus(pw_page) -> None:
+    """
+    Click the 'Voir plus' link inside the job description so that truncated
+    content is fully expanded before we scrape the DOM.
+    WTTJ renders this as <a data-testid="view-more-btn"> (not a <button>).
+    """
+    try:
+        # Target only the view-more link inside the description section
+        btn = pw_page.locator(
+            '[data-testid="job-section-description"] [data-testid="view-more-btn"]'
+        ).first
+        if btn.count() and btn.is_visible():
+            btn.click()
+            pw_page.wait_for_load_state("networkidle")
+    except Exception:
+        pass
+
+
 def scrape_job(url: str) -> dict:
     """
     Fetch a single WTTJ job page and return a dict of structured fields.
@@ -283,7 +301,7 @@ def scrape_job(url: str) -> dict:
     Raises ValueError on 404.
     """
     _silence_scrapling()
-    page = DynamicFetcher.fetch(url, network_idle=True, headless=True)
+    page = DynamicFetcher.fetch(url, network_idle=True, headless=True, page_action=_expand_voir_plus)
 
     if page.css('[data-testid="error-page-404"]'):
         raise ValueError(f"404 — job listing not found: {url}")
