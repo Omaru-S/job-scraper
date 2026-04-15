@@ -79,29 +79,55 @@ def _joined(el, selector: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Listing page — scroll to load offers, filter by country
+# Listing page — click "Voir plus d'offres" until exhausted, filter by country
 # ---------------------------------------------------------------------------
 
-def _scroll_load_action(max_scrolls: int):
+def _click_voir_plus_action(max_clicks: int):
     """
-    page_action: scroll to the bottom repeatedly to trigger lazy loading.
-    Stops early if no new cards appear after a scroll.
+    page_action:
+    1. Dismiss the Didomi cookie consent popup (it intercepts all pointer events).
+    2. Click 'Voir plus d'offres' repeatedly until the button disappears or
+       no new cards are added. Stops after max_clicks at most.
     """
     def _action(pw_page) -> None:
-        for _ in range(max_scrolls):
-            before = pw_page.locator(".figure_container").count()
-            pw_page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            pw_page.wait_for_timeout(1500)
-            after = pw_page.locator(".figure_container").count()
-            if after == before:
-                break  # nothing new loaded — we've reached the end
+        # ── Step 1: dismiss cookie banner ──────────────────────────────────
+        try:
+            reject_btn = pw_page.locator("button.didomi-disagree-button").first
+            if reject_btn.count() and reject_btn.is_visible():
+                reject_btn.click()
+                pw_page.wait_for_selector(
+                    "#didomi-host", state="hidden", timeout=5000
+                )
+        except Exception:
+            pass  # banner may already be gone or have a different selector
+
+        # ── Step 2: click "Voir plus d'offres" until exhausted ─────────────
+        for _ in range(max_clicks):
+            try:
+                btn = pw_page.locator("a.see-more-btn, button.see-more-btn").first
+                if not (btn.count() and btn.is_visible()):
+                    break  # button gone — all offers loaded
+                before = pw_page.locator(".figure_container").count()
+                btn.scroll_into_view_if_needed()
+                btn.click()
+                # Wait for new cards to appear rather than networkidle
+                pw_page.wait_for_function(
+                    f"document.querySelectorAll('.figure_container').length > {before}",
+                    timeout=10000,
+                )
+                after = pw_page.locator(".figure_container").count()
+                if after == before:
+                    break  # no new cards — stop
+            except Exception:
+                break
     return _action
 
 
-def list_offers(max_scrolls: int = 30) -> list[CardResult]:
+def list_offers(max_clicks: int = 100) -> list[CardResult]:
     """
-    Scrape the MVV listing page, scroll to load all offers, and return
-    only those in the target countries (Japan, USA, Singapore, Switzerland).
+    Fetch the MVV listing page, click 'Voir plus d'offres' until all offers
+    are loaded, and return only those in the target countries.
+    max_clicks caps the number of button clicks (each loads ~6 offers).
     """
     _silence_scrapling()
 
@@ -109,7 +135,7 @@ def list_offers(max_scrolls: int = 30) -> list[CardResult]:
         SEARCH_URL,
         network_idle=True,
         headless=True,
-        page_action=_scroll_load_action(max_scrolls),
+        page_action=_click_voir_plus_action(max_clicks),
     )
 
     results: list[CardResult] = []

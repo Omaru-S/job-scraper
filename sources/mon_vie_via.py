@@ -34,11 +34,12 @@ class MonVieViaSource(JobSource):
             return []
         self._done = True
 
-        # max_scrolls: each scroll loads ~6 cards; 30 scrolls ≈ 180 cards max
-        max_scrolls = max(5, max_results // 6)
+        # max_clicks: each "Voir plus" click loads ~6 cards; default 100 → ~600 cards max
+        # Pass max_results // 6 but with a generous floor so we don't stop too early
+        max_clicks = max(20, max_results // 6)
 
-        # 1. Listing page → filtered cards
-        cards: list[CardResult] = list_offers(max_scrolls=max_scrolls)
+        # 1. Listing page → filtered cards (clicks "Voir plus" until exhausted)
+        cards: list[CardResult] = list_offers(max_clicks=max_clicks)
 
         # 2. Scrape detail pages in parallel
         offers: list[JobOffer] = []
