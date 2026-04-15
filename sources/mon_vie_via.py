@@ -1,3 +1,5 @@
+import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
@@ -8,40 +10,52 @@ from sources.base import JobSource
 
 _SCRAPE_WORKERS = 3  # concurrent Playwright sessions
 
+# Maps the French country prefix in card locations to a display label
+_COUNTRY_LABELS = {
+    "ETATS-UNIS": "États-Unis",
+    "JAPON":      "Japon",
+    "SINGAPOUR":  "Singapour",
+    "SUISSE":     "Suisse",
+}
+
+
+def _country_key(location: str | None) -> str:
+    loc = (location or "").upper()
+    for key in _COUNTRY_LABELS:
+        if key in loc:
+            return key
+    return "AUTRE"
+
 
 class MonVieViaSource(JobSource):
     """
     Scraper for mon-vie-via.businessfrance.fr.
 
-    This source is VIE/VIA only and country-scoped (Japan, USA, Singapore,
-    Switzerland) so it ignores the pipeline's `keywords` and `location`
-    parameters — the country filter is baked into the scraper.
-
-    The pipeline calls fetch() once per keyword; we only do the real work on
-    the first call and return [] for subsequent ones to avoid re-scraping the
-    same listing page 10+ times.
+    Fetches all VIE/VIA offers in Japan, USA, Singapore and Switzerland
+    using the site's own country filter — no keyword search needed.
     """
 
-    def __init__(self) -> None:
-        self._done = False
+    uses_keywords = False
 
     @property
     def name(self) -> str:
         return "mon_vie_via"
 
     def fetch(self, keywords: str, location: str, max_results: int) -> list[JobOffer]:
-        if self._done:
-            return []
-        self._done = True
-
-        # max_clicks: each "Voir plus" click loads ~6 cards; default 100 → ~600 cards max
-        # Pass max_results // 6 but with a generous floor so we don't stop too early
         max_clicks = max(20, max_results // 6)
 
-        # 1. Listing page → filtered cards (clicks "Voir plus" until exhausted)
+        # 1. Listing page → filtered cards
+        print("  Fetching listing…")
         cards: list[CardResult] = list_offers(max_clicks=max_clicks)
 
-        # 2. Scrape detail pages in parallel
+        # 2. Show per-country breakdown
+        counts: Counter = Counter(_country_key(c.location) for c in cards)
+        for key, label in _COUNTRY_LABELS.items():
+            n = counts.get(key, 0)
+            print(f"  {label:<12} {n:>3} offer{'s' if n != 1 else ''} found")
+        print(f"  {'Total':<12} {len(cards):>3} offers")
+
+        # 3. Scrape detail pages in parallel
         offers: list[JobOffer] = []
         batch = cards[:max_results]
         futures: dict = {}
@@ -55,7 +69,7 @@ class MonVieViaSource(JobSource):
                 total=len(futures),
                 desc="  Scraping",
                 unit="page",
-                leave=False,
+                leave=True,
             ) as bar:
                 for future in bar:
                     card = futures[future]
@@ -80,5 +94,5 @@ def _map(data: dict) -> JobOffer:
         posted_at=data.get("posted_at"),
         description=data.get("description"),
         contract_type=data.get("contract_type"),
-        experience=None,  # MVV offers rarely specify experience requirements
+        experience=None,
     )

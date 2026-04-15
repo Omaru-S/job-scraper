@@ -34,15 +34,22 @@ def run_pipeline(
 
     for source in sources:
         print(f"\n── {source.name} ──────────────────────────")
-        with tqdm(keywords, unit="keyword", leave=True) as bar:
-            for kw in bar:
-                bar.set_description(f"  {kw[:40]}")
-                try:
-                    offers = source.fetch(kw, location, max_results)
-                    tqdm.write(f"  ✓ {kw!r:35} → {len(offers)} offers")
-                    all_offers.extend(offers)
-                except Exception as exc:
-                    tqdm.write(f"  ✗ {kw!r:35} → ERROR: {exc}")
+        if source.uses_keywords:
+            with tqdm(keywords, unit="keyword", leave=True) as bar:
+                for kw in bar:
+                    bar.set_description(f"  {kw[:40]}")
+                    try:
+                        offers = source.fetch(kw, location, max_results)
+                        tqdm.write(f"  ✓ {kw!r:35} → {len(offers)} offers")
+                        all_offers.extend(offers)
+                    except Exception as exc:
+                        tqdm.write(f"  ✗ {kw!r:35} → ERROR: {exc}")
+        else:
+            try:
+                offers = source.fetch("", location, max_results)
+                all_offers.extend(offers)
+            except Exception as exc:
+                print(f"  ✗ ERROR: {exc}")
 
     print(f"\n── Pipeline ────────────────────────────────")
     print(f"  Fetched:  {len(all_offers)} total")

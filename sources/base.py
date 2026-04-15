@@ -6,6 +6,10 @@ from models import JobOffer
 class JobSource(ABC):
     """Abstract base class for all job data sources."""
 
+    #: Set to False for sources that don't search by keyword (e.g. VIE portal).
+    #: The pipeline will call fetch() once instead of once per keyword.
+    uses_keywords: bool = True
+
     @property
     @abstractmethod
     def name(self) -> str:
